@@ -2,7 +2,7 @@
 
 ## Reporting a vulnerability
 
-Do not open a public issue for an unpatched vulnerability. Use [GitHub's private vulnerability reporting](https://github.com/opisaac9001/MemoryManager/security/advisories/new) or email `enve.audiobook@gmail.com`.
+Do not open a public issue for an unpatched vulnerability. Use [GitHub's private vulnerability reporting](https://github.com/petty-foss-dev/MemoryManager/security/advisories/new) or email `enve.audiobook@gmail.com`.
 
 Include the affected version, reproduction steps, impact, and any suggested mitigation. Remove personal file names, folder paths, and other private details from logs or screenshots.
 

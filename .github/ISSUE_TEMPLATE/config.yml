@@ -1,7 +1,7 @@
 blank_issues_enabled: false
 contact_links:
   - name: Questions and ideas
-    url: https://github.com/opisaac9001/MemoryManager/discussions
+    url: https://github.com/petty-foss-dev/MemoryManager/discussions
     about: Ask a question or develop an idea with the community before opening an issue.
   - name: Discord community
     url: https://discord.gg/Hw4nmXRehb

@@ -9,11 +9,11 @@
 </p>
 
 <p align="center">
-  <a href="https://github.com/opisaac9001/MemoryManager/releases/latest"><img src="https://img.shields.io/github/v/release/opisaac9001/MemoryManager?style=for-the-badge&label=Download&logo=apple&logoColor=white&color=2F81F7" alt="Download the latest release"></a>
+  <a href="https://github.com/petty-foss-dev/MemoryManager/releases/latest"><img src="https://img.shields.io/github/v/release/petty-foss-dev/MemoryManager?style=for-the-badge&label=Download&logo=apple&logoColor=white&color=2F81F7" alt="Download the latest release"></a>
   <img src="https://img.shields.io/badge/macOS-14%2B-000000?style=for-the-badge&logo=apple&logoColor=white" alt="macOS 14 or later">
-  <a href="https://github.com/opisaac9001/MemoryManager/actions/workflows/ci.yml"><img src="https://img.shields.io/github/actions/workflow/status/opisaac9001/MemoryManager/ci.yml?branch=main&style=for-the-badge&label=CI" alt="CI status"></a>
-  <a href="https://github.com/opisaac9001/MemoryManager/issues"><img src="https://img.shields.io/github/issues/opisaac9001/MemoryManager?style=for-the-badge&color=F5921A" alt="Open issues"></a>
-  <a href="https://github.com/opisaac9001/MemoryManager/discussions"><img src="https://img.shields.io/badge/GitHub-Discussions-24292F?style=for-the-badge&logo=github" alt="GitHub Discussions"></a>
+  <a href="https://github.com/petty-foss-dev/MemoryManager/actions/workflows/ci.yml"><img src="https://img.shields.io/github/actions/workflow/status/petty-foss-dev/MemoryManager/ci.yml?branch=main&style=for-the-badge&label=CI" alt="CI status"></a>
+  <a href="https://github.com/petty-foss-dev/MemoryManager/issues"><img src="https://img.shields.io/github/issues/petty-foss-dev/MemoryManager?style=for-the-badge&color=F5921A" alt="Open issues"></a>
+  <a href="https://github.com/petty-foss-dev/MemoryManager/discussions"><img src="https://img.shields.io/badge/GitHub-Discussions-24292F?style=for-the-badge&logo=github" alt="GitHub Discussions"></a>
   <a href="https://discord.gg/Hw4nmXRehb"><img src="https://img.shields.io/badge/Discord-community-5865F2?style=for-the-badge&logo=discord&logoColor=white" alt="Join the Discord community"></a>
   <a href="https://buymeacoffee.com/envebookplayer"><img src="https://img.shields.io/badge/Buy%20Me%20a%20Coffee-support-FFDD00?style=for-the-badge&logo=buymeacoffee&logoColor=000000" alt="Support development on Buy Me a Coffee"></a>
   <a href="./LICENSE.md"><img src="https://img.shields.io/badge/license-AGPL--3.0--only-663399?style=for-the-badge" alt="AGPL-3.0-only license"></a>
@@ -50,7 +50,7 @@ Memory Manager is written in SwiftUI and uses only public macOS APIs. It needs n
 
 **Requirements:** macOS 14 Sonoma or later, on Apple silicon or Intel.
 
-1. Download the latest `Memory Manager <version>.dmg` from [Releases](https://github.com/opisaac9001/MemoryManager/releases/latest).
+1. Download the latest `Memory Manager <version>.dmg` from [Releases](https://github.com/petty-foss-dev/MemoryManager/releases/latest).
 2. Open the DMG and drag **Memory Manager** onto the **Applications** shortcut.
 3. Open Memory Manager from Applications, Spotlight, or Launchpad.
 
@@ -117,7 +117,7 @@ Memory Manager has no network code, analytics, or telemetry. History is stored l
 Requirements: Xcode 15 or later. [XcodeGen](https://github.com/yonaskolb/XcodeGen) is only needed if you change `project.yml`.
 
 ```bash
-git clone https://github.com/opisaac9001/MemoryManager.git
+git clone https://github.com/petty-foss-dev/MemoryManager.git
 cd MemoryManager
 open MemoryManager.xcodeproj
 ```
@@ -157,7 +157,7 @@ project.yml                XcodeGen project definition
 
 ## Contributing
 
-Bug fixes, accessibility improvements, documentation, and focused features are welcome. Start with [CONTRIBUTING.md](CONTRIBUTING.md). Use [Discussions](https://github.com/opisaac9001/MemoryManager/discussions) for questions and early ideas, and Issues for reproducible bugs or agreed work. Features that need private APIs or administrator privileges are out of scope.
+Bug fixes, accessibility improvements, documentation, and focused features are welcome. Start with [CONTRIBUTING.md](CONTRIBUTING.md). Use [Discussions](https://github.com/petty-foss-dev/MemoryManager/discussions) for questions and early ideas, and Issues for reproducible bugs or agreed work. Features that need private APIs or administrator privileges are out of scope.
 
 For help, see [SUPPORT.md](SUPPORT.md) or join the [Discord](https://discord.gg/Hw4nmXRehb). Please report security problems privately as described in [SECURITY.md](SECURITY.md).
 
@@ -165,9 +165,9 @@ For help, see [SUPPORT.md](SUPPORT.md) or join the [Discord](https://discord.gg/
 
 | Resource | Link |
 | --- | --- |
-| Download | [Latest release](https://github.com/opisaac9001/MemoryManager/releases/latest) |
-| Questions and ideas | [GitHub Discussions](https://github.com/opisaac9001/MemoryManager/discussions) |
-| Bugs and tracked work | [GitHub Issues](https://github.com/opisaac9001/MemoryManager/issues) |
+| Download | [Latest release](https://github.com/petty-foss-dev/MemoryManager/releases/latest) |
+| Questions and ideas | [GitHub Discussions](https://github.com/petty-foss-dev/MemoryManager/discussions) |
+| Bugs and tracked work | [GitHub Issues](https://github.com/petty-foss-dev/MemoryManager/issues) |
 | Community | [Discord](https://discord.gg/Hw4nmXRehb) |
 | Support development | [Buy Me a Coffee](https://buymeacoffee.com/envebookplayer) |
 

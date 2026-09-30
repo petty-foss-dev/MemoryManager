@@ -2,7 +2,7 @@
 
 Focused fixes, accessibility work, documentation, and well-scoped features are welcome.
 
-Questions and early ideas belong in [GitHub Discussions](https://github.com/opisaac9001/MemoryManager/discussions). Use Issues for reproducible bugs and work that is ready to be tracked. Report vulnerabilities privately through [GitHub's security advisory form](https://github.com/opisaac9001/MemoryManager/security/advisories/new), never in an issue or discussion.
+Questions and early ideas belong in [GitHub Discussions](https://github.com/petty-foss-dev/MemoryManager/discussions). Use Issues for reproducible bugs and work that is ready to be tracked. Report vulnerabilities privately through [GitHub's security advisory form](https://github.com/petty-foss-dev/MemoryManager/security/advisories/new), never in an issue or discussion.
 
 ## Before writing code
 
@@ -16,13 +16,13 @@ Questions and early ideas belong in [GitHub Discussions](https://github.com/opis
 The quickest command-line workflow is:
 
 ```sh
-gh repo fork opisaac9001/MemoryManager --clone
+gh repo fork petty-foss-dev/MemoryManager --clone
 cd MemoryManager
 git switch -c fix/short-description
 
 # Make and verify your changes, then:
 git push -u origin fix/short-description
-gh pr create --repo opisaac9001/MemoryManager --base main
+gh pr create --repo petty-foss-dev/MemoryManager --base main
 ```
 
 You can also use GitHub's **Fork** button, clone your fork, create a focused branch, and open a pull request against this repository's `main` branch. The upstream repository keeps `main` as its only long-lived branch; contribution branches live in contributor forks and are deleted after merge.
