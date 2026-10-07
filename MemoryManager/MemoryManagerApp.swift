@@ -52,7 +52,9 @@ struct MemoryManagerApp: App {
         }
         .defaultSize(width: 1100, height: 840)
         .windowStyle(.titleBar)
+        .windowToolbarStyle(.unified(showsTitle: false))
         .commands {
+            DashboardCommands(monitor: monitor)
             CommandMenu("Memory") {
                 Button("Refresh") { monitor.refresh() }
                     .keyboardShortcut("r", modifiers: .command)
@@ -90,6 +92,28 @@ struct MemoryManagerApp: App {
             SettingsView()
                 .environmentObject(monitor)
                 .environmentObject(storage)
+        }
+    }
+}
+
+/// View-menu shortcuts for switching dashboards and an Edit-menu Find that
+/// focuses the visible search field.
+private struct DashboardCommands: Commands {
+    @ObservedObject var monitor: ProcessMonitor
+    @FocusedValue(\.focusSearch) private var focusSearch
+
+    var body: some Commands {
+        CommandGroup(replacing: .textEditing) {
+            Button("Find…") { focusSearch?() }
+                .keyboardShortcut("f", modifiers: .command)
+                .disabled(focusSearch == nil)
+        }
+        CommandGroup(before: .toolbar) {
+            ForEach(Array(DashboardMode.allCases.enumerated()), id: \.element) { index, mode in
+                Button(mode.label) { monitor.dashboardMode = mode }
+                    .keyboardShortcut(KeyEquivalent(Character(String(index + 1))), modifiers: .command)
+            }
+            Divider()
         }
     }
 }

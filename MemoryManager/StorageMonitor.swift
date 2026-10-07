@@ -35,6 +35,13 @@ struct VolumeStorageSnapshot: Equatable, Sendable {
     }
 }
 
+enum StorageSortOrder: Sendable {
+    case sizeDescending
+    case sizeAscending
+    case nameAscending
+    case nameDescending
+}
+
 struct StorageItem: Identifiable, Equatable, Sendable {
     var id: String { url.path }
     let name: String
@@ -395,6 +402,7 @@ final class StorageMonitor: ObservableObject {
     @Published var searchText = ""
     @Published var includeProtectedLocations = true
     @Published var selectedRisk: StorageRisk?
+    @Published var sortOrder = StorageSortOrder.sizeDescending
     @Published var errorMessage: String?
     @Published var statusMessage: String?
 
@@ -408,13 +416,23 @@ final class StorageMonitor: ObservableObject {
     }
 
     var filteredItems: [StorageItem] {
-        items.filter { item in
+        let matching = items.filter { item in
             let matchesRisk = selectedRisk == nil || item.risk == selectedRisk
             let matchesSearch = searchText.isEmpty
                 || item.name.localizedCaseInsensitiveContains(searchText)
                 || item.category.localizedCaseInsensitiveContains(searchText)
                 || item.url.path.localizedCaseInsensitiveContains(searchText)
             return matchesRisk && matchesSearch
+        }
+        switch sortOrder {
+        case .sizeDescending:
+            return matching
+        case .sizeAscending:
+            return matching.reversed()
+        case .nameAscending:
+            return matching.sorted { $0.name.localizedStandardCompare($1.name) == .orderedAscending }
+        case .nameDescending:
+            return matching.sorted { $0.name.localizedStandardCompare($1.name) == .orderedDescending }
         }
     }
 

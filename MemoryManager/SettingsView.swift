@@ -24,7 +24,7 @@ struct SettingsView: View {
                     Text("Eco Mode slows monitoring to 10 seconds in Low Power Mode or warm conditions, and 30 seconds under serious thermal pressure.")
                         .font(.caption).foregroundStyle(.secondary)
                     Toggle("Combine helper processes with their app", isOn: $monitor.combineProcesses)
-                    Toggle("Show recent memory history", isOn: $monitor.showHistory)
+                    Toggle("Show history charts on dashboards", isOn: $monitor.showHistory)
                 }
 
                 Section("Convenience") {
@@ -44,6 +44,7 @@ struct SettingsView: View {
                     }
                 }
             }
+            .formStyle(.grouped)
             .tabItem { Label("General", systemImage: "gearshape") }
 
             Form {
@@ -79,6 +80,7 @@ struct SettingsView: View {
                         .foregroundStyle(.secondary)
                 }
             }
+            .formStyle(.grouped)
             .tabItem { Label("Alerts", systemImage: "bell") }
 
             Form {
@@ -95,7 +97,11 @@ struct SettingsView: View {
                     }
                     .disabled(monitor.managedPauseCount == 0)
                 }
+            }
+            .formStyle(.grouped)
+            .tabItem { Label("Safety", systemImage: "checkmark.shield") }
 
+            Form {
                 Section("History") {
                     Picker("Default chart range", selection: $monitor.historyRange) {
                         ForEach(HistoryRange.allCases) { range in Text(range.label).tag(range) }
@@ -112,10 +118,10 @@ struct SettingsView: View {
                         .disabled(monitor.historicalSampleCount == 0)
                 }
             }
-            .tabItem { Label("Safety", systemImage: "checkmark.shield") }
+            .formStyle(.grouped)
+            .tabItem { Label("History", systemImage: "clock.arrow.circlepath") }
         }
-        .padding(16)
-        .frame(width: 600, height: 430)
+        .frame(width: 600, height: 520)
         .alert("Couldn’t change Login Item settings", isPresented: launchErrorPresented) {
             Button("OK", role: .cancel) {}
         } message: {

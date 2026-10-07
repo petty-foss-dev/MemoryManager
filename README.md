@@ -84,12 +84,15 @@ The menu-bar readout is on by default. Use **Memory Manager → Settings** to ch
 
 ### Insights and history
 - Minute-level history kept for seven days, with 1-hour, 24-hour, and 7-day chart ranges
+- Hover any chart to read the exact value and time
 - Automatic Eco Mode that polls less often in Low Power Mode or under thermal pressure
 - Markdown diagnostic snapshots and CSV history export
 - Energy used this session in watt-hours, with average and peak battery watts
 
 ### Control
 - Sort apps, mark favorites, hide apps from the menu bar, and search by name or PID
+- An inspector panel (⌘I) with an app's last hour of memory and CPU, its processes, location, and actions
+- Keyboard shortcuts: ⌘1–⌘5 switch dashboards, ⌘R refreshes
 - Normal quit, force quit with confirmation, and fail-safe pause/resume of an app's whole process tree
 - Configurable memory, swap, CPU, and thermal notifications, with a cooldown so they don't repeat
 - Launch at Login via Apple's Service Management API
@@ -145,12 +148,17 @@ Memory Manager only allows one copy of itself to run. Quit any installed copy be
 MemoryManager/
   MemoryManagerApp.swift   App entry point, menus, and menu-bar extra
   ContentView.swift        Memory, CPU, and Activity dashboards
+  AppInspectorView.swift   Per-app detail inspector
+  HistoryChart.swift       Shared history chart with hover readouts
+  DashboardStyle.swift     Shared colors, ring gauge, and formatters
   ProcessMonitor.swift     Process sampling, attribution, alerts, history, and system readers
   StorageMonitor.swift     Storage scanning, classification, duplicates, and Trash safety
   StorageView.swift        Storage dashboard
   InsightsView.swift       Insights dashboard
   MenuBarView.swift        Menu-bar popover
   SettingsView.swift       Settings window
+  AppIcon.icon             Icon Composer (Liquid Glass) app icon
+  Assets.xcassets          Flat fallback icon for older toolchains
 MemoryManagerTests/        Unit tests
 project.yml                XcodeGen project definition
 ```

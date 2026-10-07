@@ -1,4 +1,3 @@
-import Charts
 import SwiftUI
 
 struct ContentView: View {
@@ -6,33 +5,26 @@ struct ContentView: View {
     @EnvironmentObject private var storage: StorageMonitor
     @State private var pendingForceQuit: AppMemory?
     @State private var pendingPause: AppMemory?
+    @State private var showingActivityInfo = false
+    @State private var selectedAppID: pid_t?
+    @State private var showingInspector = false
+    @FocusState private var searchFocused: Bool
 
     var body: some View {
-        VStack(spacing: 0) {
-            dashboardPicker
-            if monitor.dashboardMode == .storage {
-                StorageView()
-            } else if monitor.dashboardMode == .insights {
-                InsightsView()
-            } else {
-                Group {
-                    switch monitor.dashboardMode {
-                    case .memory: systemOverview
-                    case .cpu: cpuOverview
-                    case .activity: activityOverview
-                    case .storage: EmptyView()
-                    case .insights: EmptyView()
-                    }
-                }
-                Divider()
-                controls
-                Divider()
-                appList
+        Group {
+            switch monitor.dashboardMode {
+            case .storage: StorageView(searchFocused: $searchFocused)
+            case .insights: InsightsView()
+            case .memory, .cpu, .activity: processDashboard
             }
         }
         .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .top)
         .background(Color(nsColor: .windowBackgroundColor))
+        .toolbar {
+            ToolbarItem(placement: .principal) { dashboardPicker }
+        }
         .onAppear { monitor.searchText = "" }
+        .focusedSceneValue(\.focusSearch, focusSearchAction)
         .alert("Couldn’t complete that action", isPresented: errorIsPresented) {
             Button("OK", role: .cancel) {}
         } message: {
@@ -66,40 +58,103 @@ struct ContentView: View {
         }
     }
 
+    /// Insights has no search field, and focusing the toolbar search needs macOS 15.
+    private var focusSearchAction: (() -> Void)? {
+        guard monitor.dashboardMode != .insights else { return nil }
+        guard #available(macOS 15.0, *) else { return nil }
+        return { searchFocused = true }
+    }
+
     private var dashboardPicker: some View {
         Picker("Dashboard", selection: $monitor.dashboardMode) {
             ForEach(DashboardMode.allCases) { mode in
-                Label(mode.label, systemImage: mode.symbol).tag(mode)
+                Text(mode.label).tag(mode)
             }
         }
         .pickerStyle(.segmented)
         .labelsHidden()
-        .padding(.horizontal, 20)
-        .padding(.top, 16)
+        .help("Switch dashboards (⌘1–⌘5)")
+    }
+
+    /// Memory, CPU, and Activity share the overview-plus-app-list layout.
+    private var processDashboard: some View {
+        VStack(spacing: 0) {
+            switch monitor.dashboardMode {
+            case .cpu: cpuOverview
+            case .activity: activityOverview
+            default: systemOverview
+            }
+            Divider()
+            appList
+        }
+        .searchable(text: $monitor.searchText, placement: .toolbar, prompt: "Search apps or PID")
+        .searchFocusedIfAvailable($searchFocused)
+        .toolbar {
+            ToolbarItemGroup(placement: .primaryAction) {
+                viewMenu
+                Button {
+                    monitor.refresh()
+                } label: {
+                    Label("Refresh", systemImage: "arrow.clockwise")
+                }
+                .help("Refresh now (⌘R)")
+                inspectorToggle
+            }
+        }
+        .inspector(isPresented: $showingInspector) {
+            AppInspectorView(
+                appID: selectedAppID,
+                onPause: { pendingPause = $0 },
+                onForceQuit: { pendingForceQuit = $0 }
+            )
+            .inspectorColumnWidth(min: 260, ideal: 300, max: 420)
+        }
+    }
+
+    private var inspectorToggle: some View {
+        Button {
+            showingInspector.toggle()
+        } label: {
+            Label(showingInspector ? "Hide Info" : "Show Info", systemImage: "sidebar.right")
+        }
+        .keyboardShortcut("i", modifiers: .command)
+        .help(showingInspector ? "Hide app details (⌘I)" : "Show details for the selected app (⌘I)")
+    }
+
+    private var viewMenu: some View {
+        Menu {
+            Picker("Sort", selection: $monitor.sortMode) {
+                ForEach(sortOptions) { mode in Text(mode.label).tag(mode) }
+            }
+            Divider()
+            Toggle("Combine helper processes", isOn: $monitor.combineProcesses)
+            Toggle("Show history charts", isOn: $monitor.showHistory)
+            Toggle("Live updates", isOn: $monitor.autoRefresh)
+        } label: {
+            Label("View Options", systemImage: "line.3.horizontal.decrease.circle")
+        }
+        .help("Sort and display options")
     }
 
     private var systemOverview: some View {
         VStack(spacing: 14) {
             HStack(spacing: 18) {
-                ZStack {
-                    Circle().stroke(Color.secondary.opacity(0.16), lineWidth: 9)
-                    Circle()
-                        .trim(from: 0, to: monitor.memory.usedPercent / 100)
-                        .stroke(pressureColor, style: StrokeStyle(lineWidth: 9, lineCap: .round))
-                        .rotationEffect(.degrees(-90))
-                    Text("\(Int(monitor.memory.usedPercent.rounded()))%")
-                        .font(.system(.headline, design: .rounded).weight(.semibold))
-                }
-                .frame(width: 74, height: 74)
+                RingGauge(
+                    percent: monitor.memory.usedPercent,
+                    color: monitor.memory.pressure.color,
+                    accessibilityLabel: "Memory used"
+                )
 
                 VStack(alignment: .leading, spacing: 4) {
                     Text("Memory")
                         .font(.title2.weight(.semibold))
                     Text("\(formatBytes(monitor.memory.usedBytes)) of \(formatBytes(monitor.memory.totalBytes)) used")
                         .font(.headline)
+                        .liveValue(monitor.memory.usedBytes)
                     Text("\(formatBytes(monitor.memory.availableBytes)) readily available")
                         .font(.subheadline)
                         .foregroundStyle(.secondary)
+                        .liveValue(monitor.memory.availableBytes)
                 }
 
                 Spacer()
@@ -109,17 +164,20 @@ struct ContentView: View {
                 VStack(alignment: .trailing, spacing: 5) {
                     Label(monitor.memory.pressure.label, systemImage: "circle.fill")
                         .font(.headline)
-                        .foregroundStyle(pressureColor)
+                        .foregroundStyle(monitor.memory.pressure.color)
                     Text("System pressure")
                         .font(.caption)
                         .foregroundStyle(.secondary)
                 }
+                .accessibilityElement(children: .ignore)
+                .accessibilityLabel("System memory pressure")
+                .accessibilityValue(monitor.memory.pressure.label)
             }
 
             MemoryBreakdownBar(snapshot: monitor.memory)
 
             if monitor.showHistory {
-                historyChart
+                historyChart(monitor.chartHistory)
             }
         }
         .padding(20)
@@ -129,12 +187,17 @@ struct ContentView: View {
     private var cpuOverview: some View {
         VStack(spacing: 14) {
             HStack(spacing: 18) {
-                gauge(percent: monitor.cpu.overallPercent, color: cpuColor)
+                RingGauge(
+                    percent: monitor.cpu.overallPercent,
+                    color: cpuLoadColor(monitor.cpu.overallPercent),
+                    accessibilityLabel: "CPU load"
+                )
 
                 VStack(alignment: .leading, spacing: 4) {
                     Text("CPU").font(.title2.weight(.semibold))
                     Text("\(monitor.cpu.equivalentCores, specifier: "%.1f") equivalent cores in use")
                         .font(.headline)
+                        .liveValue(monitor.cpu.equivalentCores)
                     Text("Rows below use the same whole-machine percentage scale")
                         .font(.subheadline)
                         .foregroundStyle(.secondary)
@@ -147,14 +210,19 @@ struct ContentView: View {
                 VStack(alignment: .trailing, spacing: 5) {
                     Label(monitor.thermalLevel.label, systemImage: "thermometer.medium")
                         .font(.headline)
-                        .foregroundStyle(thermalColor)
+                        .foregroundStyle(monitor.thermalLevel.color)
                     Text(monitor.lowPowerModeEnabled ? "Low Power Mode" : "Thermal state")
                         .font(.caption)
                         .foregroundStyle(.secondary)
                 }
+                .accessibilityElement(children: .ignore)
+                .accessibilityLabel(monitor.lowPowerModeEnabled ? "Thermal state, Low Power Mode on" : "Thermal state")
+                .accessibilityValue(monitor.thermalLevel.label)
             }
 
-            cpuHistoryChart
+            if monitor.showHistory {
+                cpuHistoryChart(monitor.chartHistory)
+            }
             perCoreGrid
         }
         .padding(20)
@@ -162,12 +230,17 @@ struct ContentView: View {
     }
 
     private var activityOverview: some View {
-        VStack(spacing: 14) {
+        let history = monitor.showHistory ? monitor.chartHistory : []
+        let hasPowerHistory = history.contains { $0.powerWatts != nil }
+        return VStack(spacing: 14) {
             LazyVGrid(columns: [GridItem(.adaptive(minimum: 160), spacing: 12)], spacing: 12) {
-                activityCard(
-                    title: powerTitle, value: powerValue,
-                    subtitle: powerSubtitle, symbol: "bolt.fill", color: .yellow
-                )
+                if monitor.power.source != .unavailable {
+                    activityCard(
+                        title: powerTitle, value: powerValue,
+                        subtitle: powerSubtitle, symbol: "bolt.fill", color: .yellow
+                    )
+                    .help(powerExplanation)
+                }
                 activityCard(
                     title: "Disk read", value: formatRate(monitor.diskReadBytesPerSecond),
                     subtitle: "All readable processes", symbol: "arrow.down.to.line", color: .blue
@@ -179,7 +252,8 @@ struct ContentView: View {
                 activityCard(
                     title: monitor.hardware.gpuName,
                     value: monitor.hardware.gpuCoreCount.map { "\($0) GPU cores" } ?? "GPU",
-                    subtitle: "Live load unavailable publicly", symbol: "display", color: .purple
+                    subtitle: "Live load not public", symbol: "display", color: .purple,
+                    showsInfo: true
                 )
                 activityCard(
                     title: "CPU hardware",
@@ -187,101 +261,98 @@ struct ContentView: View {
                     subtitle: "\(monitor.hardware.physicalCPUCount) physical cores", symbol: "cpu", color: .green
                 )
             }
-            HStack {
-                Text("History range").font(.caption).foregroundStyle(.secondary)
-                Spacer()
-                historyRangePicker
-            }
-            if monitor.chartHistory.contains(where: { $0.powerWatts != nil }) {
-                HStack(alignment: .top, spacing: 18) {
-                    diskHistoryChart.frame(maxWidth: .infinity)
-                    powerHistoryChart.frame(maxWidth: .infinity)
+            if monitor.showHistory {
+                HStack {
+                    Text("History").font(.caption.weight(.semibold)).foregroundStyle(.secondary)
+                    Spacer()
+                    historyRangePicker
                 }
-            } else {
-                diskHistoryChart
+                if hasPowerHistory {
+                    HStack(alignment: .top, spacing: 18) {
+                        diskHistoryChart(history).frame(maxWidth: .infinity)
+                        powerHistoryChart(history).frame(maxWidth: .infinity)
+                    }
+                } else {
+                    diskHistoryChart(history)
+                }
             }
-            Text(powerExplanation)
-                .font(.caption)
-                .foregroundStyle(.secondary)
-                .frame(maxWidth: .infinity, alignment: .leading)
         }
         .padding(20)
         .padding(.top, -4)
     }
 
-    private func gauge(percent: Double, color: Color) -> some View {
-        ZStack {
-            Circle().stroke(Color.secondary.opacity(0.16), lineWidth: 9)
-            Circle()
-                .trim(from: 0, to: min(1, percent / 100))
-                .stroke(color, style: StrokeStyle(lineWidth: 9, lineCap: .round))
-                .rotationEffect(.degrees(-90))
-            Text("\(Int(percent.rounded()))%")
-                .font(.system(.headline, design: .rounded).weight(.semibold))
-        }
-        .frame(width: 74, height: 74)
-    }
-
     private func activityCard(
-        title: String, value: String, subtitle: String, symbol: String, color: Color
+        title: String, value: String, subtitle: String, symbol: String, color: Color,
+        showsInfo: Bool = false
     ) -> some View {
         VStack(alignment: .leading, spacing: 5) {
-            Label(title, systemImage: symbol)
-                .font(.caption.weight(.semibold))
-                .foregroundStyle(color)
-                .lineLimit(1)
-            Text(value).font(.headline.monospacedDigit()).lineLimit(1)
+            HStack(spacing: 4) {
+                Label(title, systemImage: symbol)
+                    .font(.caption.weight(.semibold))
+                    .foregroundStyle(color)
+                    .lineLimit(1)
+                if showsInfo {
+                    Spacer(minLength: 0)
+                    activityInfoButton
+                }
+            }
+            Text(value).font(.headline.monospacedDigit()).lineLimit(1).liveValue(value)
             Text(subtitle).font(.caption2).foregroundStyle(.secondary).lineLimit(1)
         }
         .padding(12)
         .frame(maxWidth: .infinity, alignment: .leading)
         .background(Color.secondary.opacity(0.08), in: RoundedRectangle(cornerRadius: 10))
+        .accessibilityElement(children: showsInfo ? .contain : .combine)
+    }
+
+    private var activityInfoButton: some View {
+        Button {
+            showingActivityInfo.toggle()
+        } label: {
+            Label("About power and GPU readings", systemImage: "info.circle")
+                .labelStyle(.iconOnly)
+                .font(.caption)
+        }
+        .buttonStyle(.borderless)
+        .help("About power and GPU readings")
+        .popover(isPresented: $showingActivityInfo, arrowEdge: .bottom) {
+            Text(powerExplanation)
+                .font(.callout)
+                .fixedSize(horizontal: false, vertical: true)
+                .frame(width: 320)
+                .padding(14)
+        }
     }
 
     private func metric(value: String, label: String) -> some View {
         VStack(alignment: .trailing, spacing: 5) {
-            Text(value).font(.headline.monospacedDigit())
+            Text(value).font(.headline.monospacedDigit()).liveValue(value)
             Text(label).font(.caption).foregroundStyle(.secondary)
         }
+        .accessibilityElement(children: .ignore)
+        .accessibilityLabel(label)
+        .accessibilityValue(value)
     }
 
-    private var historyChart: some View {
+    private func historyChart(_ history: [MemoryHistoryPoint]) -> some View {
         VStack(alignment: .leading, spacing: 4) {
             HStack {
-                Label("Recent memory history", systemImage: "chart.xyaxis.line")
+                Label("Memory history", systemImage: "chart.xyaxis.line")
                     .font(.caption.weight(.semibold))
                     .foregroundStyle(.secondary)
                 Spacer()
                 historyRangePicker
-                if monitor.chartHistory.count > 1 {
-                    Text("\(monitor.chartHistory.count) samples")
-                        .font(.caption2)
-                        .foregroundStyle(.tertiary)
-                }
             }
-            Chart(monitor.chartHistory) { point in
-                AreaMark(
-                    x: .value("Time", point.date),
-                    y: .value("RAM used", point.usedPercent)
-                )
-                .foregroundStyle(pressureColor.opacity(0.12))
-                LineMark(
-                    x: .value("Time", point.date),
-                    y: .value("RAM used", point.usedPercent)
-                )
-                .foregroundStyle(pressureColor)
-                .lineStyle(StrokeStyle(lineWidth: 2, lineCap: .round, lineJoin: .round))
-            }
-            .chartYScale(domain: 0...100)
-            .chartXAxis(.hidden)
-            .chartYAxis {
-                AxisMarks(position: .trailing, values: [0, 50, 100])
-            }
-            .frame(height: 72)
+            HistoryChart(
+                series: [ChartSeries("Memory used", color: monitor.memory.pressure.color, history: history) { $0.usedPercent }],
+                yDomain: 0...100, fixedYTicks: [0, 50, 100],
+                accessibilityLabel: "Memory used over the last \(monitor.historyRange.label.lowercased())",
+                format: { "\(Int($0.rounded()))%" }
+            )
         }
     }
 
-    private var cpuHistoryChart: some View {
+    private func cpuHistoryChart(_ history: [MemoryHistoryPoint]) -> some View {
         VStack(alignment: .leading, spacing: 4) {
             HStack {
                 Label("CPU history", systemImage: "chart.xyaxis.line")
@@ -290,19 +361,12 @@ struct ContentView: View {
                 Spacer()
                 historyRangePicker
             }
-            Chart(monitor.chartHistory) { point in
-                AreaMark(x: .value("Time", point.date), y: .value("CPU", point.cpuPercent))
-                    .foregroundStyle(cpuColor.opacity(0.12))
-                LineMark(x: .value("Time", point.date), y: .value("CPU", point.cpuPercent))
-                    .foregroundStyle(cpuColor)
-                    .lineStyle(StrokeStyle(lineWidth: 2, lineCap: .round, lineJoin: .round))
-            }
-            .chartYScale(domain: 0...100)
-            .chartXAxis(.hidden)
-            .chartYAxis {
-                AxisMarks(position: .trailing, values: [0, 50, 100])
-            }
-            .frame(height: 66)
+            HistoryChart(
+                series: [ChartSeries("CPU", color: cpuLoadColor(monitor.cpu.overallPercent), history: history) { $0.cpuPercent }],
+                yDomain: 0...100, fixedYTicks: [0, 50, 100], height: 66,
+                accessibilityLabel: "CPU load over the last \(monitor.historyRange.label.lowercased())",
+                format: { "\(Int($0.rounded()))%" }
+            )
         }
     }
 
@@ -322,64 +386,47 @@ struct ContentView: View {
                             Spacer()
                             Text("\(Int(percent.rounded()))%").font(.caption2.monospacedDigit())
                         }
-                        ProgressView(value: percent, total: 100).tint(cpuColor(for: percent))
+                        ProgressView(value: min(percent, 100), total: 100)
+                            .tint(cpuLoadColor(percent))
+                            .animation(.easeOut(duration: 0.3), value: percent)
                     }
                     .padding(.horizontal, 7)
                     .padding(.vertical, 5)
                     .background(Color.secondary.opacity(0.07), in: RoundedRectangle(cornerRadius: 6))
+                    .accessibilityElement(children: .ignore)
+                    .accessibilityLabel("Core \(index + 1)")
+                    .accessibilityValue("\(Int(percent.rounded())) percent")
                 }
             }
         }
     }
 
-    private var diskHistoryChart: some View {
+    private func diskHistoryChart(_ history: [MemoryHistoryPoint]) -> some View {
         VStack(alignment: .leading, spacing: 4) {
-            Label("Recent tracked disk activity", systemImage: "chart.xyaxis.line")
+            Label("Disk activity", systemImage: "chart.xyaxis.line")
                 .font(.caption.weight(.semibold))
                 .foregroundStyle(.secondary)
-            Chart {
-                ForEach(monitor.chartHistory) { point in
-                    LineMark(
-                        x: .value("Time", point.date),
-                        y: .value("Bytes per second", point.diskReadBytesPerSecond),
-                        series: .value("Direction", "Read")
-                    ).foregroundStyle(by: .value("Direction", "Read"))
-                    LineMark(
-                        x: .value("Time", point.date),
-                        y: .value("Bytes per second", point.diskWriteBytesPerSecond),
-                        series: .value("Direction", "Write")
-                    ).foregroundStyle(by: .value("Direction", "Write"))
-                }
-            }
-            .chartForegroundStyleScale(["Read": Color.blue, "Write": Color.orange])
-            .chartXAxis(.hidden)
-            .chartYAxis(.hidden)
-            .frame(height: 72)
+            HistoryChart(
+                series: [
+                    ChartSeries("Read", color: .blue, history: history) { Double($0.diskReadBytesPerSecond) },
+                    ChartSeries("Write", color: .orange, history: history) { Double($0.diskWriteBytesPerSecond) }
+                ],
+                accessibilityLabel: "Disk read and write rates over the last \(monitor.historyRange.label.lowercased())",
+                format: { formatRate(UInt64(max(0, $0))) }
+            )
         }
     }
 
-    private var powerHistoryChart: some View {
+    private func powerHistoryChart(_ history: [MemoryHistoryPoint]) -> some View {
         VStack(alignment: .leading, spacing: 4) {
-            Label("Recent battery power", systemImage: "bolt.fill")
+            Label("Battery power", systemImage: "bolt.fill")
                 .font(.caption.weight(.semibold))
                 .foregroundStyle(.secondary)
-            Chart {
-                ForEach(monitor.chartHistory.filter { $0.powerWatts != nil }) { point in
-                    AreaMark(
-                        x: .value("Time", point.date),
-                        y: .value("Watts", point.powerWatts ?? 0)
-                    )
-                    .foregroundStyle(Color.yellow.opacity(0.12))
-                    LineMark(
-                        x: .value("Time", point.date),
-                        y: .value("Watts", point.powerWatts ?? 0)
-                    )
-                    .foregroundStyle(Color.yellow)
-                }
-            }
-            .chartXAxis(.hidden)
-            .chartYAxis(.hidden)
-            .frame(height: 72)
+            HistoryChart(
+                series: [ChartSeries("Battery", color: .yellow, history: history) { $0.powerWatts }],
+                accessibilityLabel: "Battery power over the last \(monitor.historyRange.label.lowercased())",
+                format: { String(format: "%.1f W", $0) }
+            )
         }
     }
 
@@ -394,13 +441,12 @@ struct ContentView: View {
     }
 
     private var powerSubtitle: String {
-        if monitor.power.source == .unavailable { return "No internal battery detected" }
         var parts: [String] = []
         if let percent = monitor.power.batteryPercent {
             parts.append("\(Int(percent.rounded()))%")
         }
         if let minutes = monitor.power.minutesRemaining, minutes > 0 {
-            parts.append(formatDuration(minutes))
+            parts.append(formatDuration(minutes: minutes))
         }
         if monitor.power.source == .acPower, !monitor.power.isCharging {
             parts.append("On power adapter")
@@ -412,75 +458,54 @@ struct ContentView: View {
         let gpu = "GPU core count is hardware information; macOS does not publicly expose reliable live GPU utilization."
         switch monitor.power.source {
         case .battery:
-            return "Battery power is estimated from macOS-reported voltage × current. \(gpu)"
+            return "Battery power is estimated from macOS-reported voltage × current.\n\n\(gpu)"
         case .acPower:
             let adapter = monitor.power.adapterRatedWatts.map { " The \($0) W adapter figure is its rated capacity, not current wall draw." } ?? ""
-            return "While plugged in, watts show battery charge flow—not the Mac’s total wall power.\(adapter) \(gpu)"
+            return "While plugged in, watts show battery charge flow—not the Mac’s total wall power.\(adapter)\n\n\(gpu)"
         case .unavailable:
-            return "This Mac does not report an internal battery, so public macOS data cannot provide actual whole-system watts without privileged or private measurement. \(gpu)"
+            return "This Mac has no internal battery, so power readings are hidden. Public macOS data can’t measure whole-system watts without privileged or private access.\n\n\(gpu)"
         }
     }
 
-    private func formatDuration(_ minutes: Int) -> String {
-        let hours = minutes / 60
-        let remainder = minutes % 60
-        return hours > 0 ? "\(hours)h \(remainder)m" : "\(remainder)m"
-    }
-
-    private var controls: some View {
-        HStack(spacing: 12) {
-            Image(systemName: "magnifyingglass").foregroundStyle(.secondary)
-            TextField("Search apps or PID", text: $monitor.searchText)
-                .textFieldStyle(.plain)
-            if !monitor.searchText.isEmpty {
-                Button {
-                    monitor.searchText = ""
-                } label: {
-                    Image(systemName: "xmark.circle.fill")
-                        .foregroundStyle(.secondary)
-                }
-                .buttonStyle(.plain)
-                .help("Clear search")
-            }
-            Spacer()
-            Menu {
-                Picker("Sort", selection: $monitor.sortMode) {
-                    ForEach(AppSortMode.allCases) { mode in Text(mode.label).tag(mode) }
-                }
-                Divider()
-                Toggle("Combine helper processes", isOn: $monitor.combineProcesses)
-                Toggle("Show history", isOn: $monitor.showHistory)
-                Toggle("Live updates", isOn: $monitor.autoRefresh)
-            } label: {
-                Label("View", systemImage: "line.3.horizontal.decrease.circle")
-            }
-            Button {
-                monitor.refresh()
-            } label: {
-                Label("Refresh", systemImage: "arrow.clockwise")
-            }
-            .keyboardShortcut("r", modifiers: .command)
+    /// Name sorts plus the sorts for the metric this dashboard shows.
+    private var sortOptions: [AppSortMode] {
+        let metric: [AppSortMode]
+        switch monitor.dashboardMode {
+        case .memory: metric = [.memoryDescending, .memoryAscending]
+        case .cpu: metric = [.cpuDescending, .cpuAscending]
+        case .activity: metric = [.diskDescending, .diskAscending]
+        case .storage, .insights: metric = []
         }
-        .padding(.horizontal, 18)
-        .padding(.vertical, 11)
+        return metric + [.nameAscending, .nameDescending]
     }
 
     private var appList: some View {
-        VStack(spacing: 0) {
+        let apps = monitor.filteredApps
+        return VStack(spacing: 0) {
             HStack {
                 Button {
                     monitor.sortMode = monitor.sortMode == .nameAscending ? .nameDescending : .nameAscending
                 } label: {
-                    Label(monitor.dashboardMode == .cpu ? "PROCESS" : "APP", systemImage: nameSortSymbol)
+                    sortHeader(
+                        monitor.dashboardMode == .cpu ? "PROCESS" : "APP",
+                        isActive: monitor.sortMode.isNameSort,
+                        ascending: monitor.sortMode == .nameAscending
+                    )
                 }
                 .buttonStyle(.plain)
+                .help("Sort by name")
                 Spacer()
                 Button {
                     togglePrimarySort()
                 } label: {
-                    Label(metricHeaderTitle, systemImage: metricSortSymbol)
+                    sortHeader(
+                        metricHeaderTitle,
+                        isActive: !monitor.sortMode.isNameSort,
+                        ascending: [.memoryAscending, .cpuAscending, .diskAscending].contains(monitor.sortMode)
+                    )
                 }
                 .buttonStyle(.plain)
+                .help("Sort by \(metricHeaderTitle.lowercased())")
                 .frame(width: 190, alignment: .trailing)
                 Text("ACTIONS").frame(width: 205, alignment: .trailing)
             }
@@ -491,18 +516,20 @@ struct ContentView: View {
 
             Divider()
 
-            if monitor.filteredApps.isEmpty {
+            if apps.isEmpty {
                 ContentUnavailableView(
-                    "No Apps Found",
+                    monitor.searchText.isEmpty ? "No Apps to Show" : "No Matching Apps",
                     systemImage: "app.dashed",
-                    description: Text("Try a different search.")
+                    description: Text(monitor.searchText.isEmpty
+                        ? "Apps appear here after the next refresh."
+                        : "Try a different name or PID.")
                 )
             } else {
                 ScrollView {
                     LazyVStack(spacing: 0) {
-                        ForEach(monitor.filteredApps) { app in
+                        ForEach(apps) { app in
                             appRow(app)
-                            Divider().padding(.leading, 62)
+                            Divider().padding(.leading, 90)
                         }
                     }
                 }
@@ -510,36 +537,61 @@ struct ContentView: View {
         }
     }
 
+    /// Column title with a sort chevron that only appears on the active column.
+    private func sortHeader(_ title: String, isActive: Bool, ascending: Bool) -> some View {
+        HStack(spacing: 4) {
+            Text(title)
+            Image(systemName: ascending ? "chevron.up" : "chevron.down")
+                .opacity(isActive ? 1 : 0)
+        }
+        .foregroundStyle(isActive ? Color.primary : Color.secondary)
+        .contentShape(Rectangle())
+        .accessibilityElement(children: .ignore)
+        .accessibilityLabel(title.capitalized)
+        .accessibilityValue(isActive ? (ascending ? "Sorted ascending" : "Sorted descending") : "")
+    }
+
     private func appRow(_ app: AppMemory) -> some View {
         HStack(spacing: 11) {
-            if app.preferenceKey != nil {
-                Button {
-                    monitor.toggleFavorite(app)
-                } label: {
-                    Image(systemName: app.isFavorite ? "star.fill" : "star")
+            Group {
+                if app.preferenceKey != nil {
+                    Button {
+                        monitor.toggleFavorite(app)
+                    } label: {
+                        Label(
+                            app.isFavorite ? "Unpin \(app.name)" : "Pin \(app.name)",
+                            systemImage: app.isFavorite ? "star.fill" : "star"
+                        )
+                        .labelStyle(.iconOnly)
                         .foregroundStyle(app.isFavorite ? .yellow : .secondary)
+                    }
+                    .buttonStyle(.plain)
+                    .help(app.isFavorite ? "Unpin app" : "Pin app to the top")
+                } else {
+                    Color.clear
                 }
-                .buttonStyle(.plain)
-                .help(app.isFavorite ? "Unpin app" : "Pin app to the top")
-            } else {
-                Color.clear.frame(width: 13, height: 13)
             }
+            .frame(width: 18, height: 18)
 
             Image(nsImage: app.icon)
                 .resizable()
                 .scaledToFit()
                 .frame(width: 32, height: 32)
+                .accessibilityHidden(true)
 
             VStack(alignment: .leading, spacing: 2) {
                 HStack(spacing: 7) {
                     Text(app.name).font(.body.weight(.medium)).lineLimit(1)
                     if app.isPaused {
-                        Text(app.isPausedByManager ? "PAUSED BY US" : "PAUSED")
+                        Text("PAUSED")
                             .font(.caption2.bold())
                             .foregroundStyle(.orange)
                             .padding(.horizontal, 6)
                             .padding(.vertical, 2)
                             .background(.orange.opacity(0.12), in: Capsule())
+                            .help(app.isPausedByManager
+                                ? "Paused by Memory Manager. It resumes automatically when Memory Manager quits."
+                                : "Paused by another app or process.")
                     }
                     if app.isIgnored {
                         Text("HIDDEN FROM MENU")
@@ -566,6 +618,7 @@ struct ContentView: View {
                 .font(.caption)
                 .foregroundStyle(.secondary)
             }
+            .accessibilityElement(children: .combine)
 
             Spacer(minLength: 12)
 
@@ -578,6 +631,7 @@ struct ContentView: View {
                         Button(app.isPaused ? "Resume" : "Pause") {
                             if app.isPaused { monitor.togglePause(app) } else { pendingPause = app }
                         }
+                        .accessibilityLabel(app.isPaused ? "Resume \(app.name)" : "Pause \(app.name)")
 
                         Menu("Quit") {
                             Button("Quit Normally") { monitor.quit(app) }
@@ -586,6 +640,7 @@ struct ContentView: View {
                         }
                         .menuStyle(.borderlessButton)
                         .fixedSize()
+                        .accessibilityLabel("Quit \(app.name)")
                     }
                 } else {
                     Text("Managed by macOS")
@@ -597,8 +652,16 @@ struct ContentView: View {
         }
         .padding(.horizontal, 18)
         .padding(.vertical, 9)
+        .background(selectedAppID == app.id ? Color.accentColor.opacity(0.14) : Color.clear)
         .contentShape(Rectangle())
+        .onTapGesture { selectedAppID = app.id }
+        .accessibilityAddTraits(selectedAppID == app.id ? .isSelected : [])
         .contextMenu {
+            Button("Show Info") {
+                selectedAppID = app.id
+                showingInspector = true
+            }
+            Divider()
             if app.canControl {
                 if app.preferenceKey != nil {
                     Button(app.isFavorite ? "Unpin App" : "Pin App") { monitor.toggleFavorite(app) }
@@ -614,21 +677,6 @@ struct ContentView: View {
                 Text("This process is managed by macOS.")
             }
         }
-    }
-
-    private var pressureColor: Color {
-        switch monitor.memory.pressure {
-        case .normal: return .green
-        case .elevated: return .orange
-        case .critical: return .red
-        }
-    }
-
-    private var nameSortSymbol: String {
-        monitor.sortMode == .nameDescending ? "chevron.down" : "chevron.up"
-    }
-    private var memorySortSymbol: String {
-        monitor.sortMode == .memoryAscending ? "chevron.up" : "chevron.down"
     }
 
     @ViewBuilder
@@ -651,19 +699,27 @@ struct ContentView: View {
                         .foregroundStyle(app.memoryChangeBytes > 0 ? .orange : .green)
                 }
             case .cpu:
-                Text(formatCPU(app.wholeMachineCPUPercent(
-                    activeProcessorCount: monitor.cpu.activeCoreCount
-                )))
+                let share = app.wholeMachineCPUPercent(activeProcessorCount: monitor.cpu.activeCoreCount)
+                let isIdle = share < 0.05
+                Text(formatCPU(share))
                     .font(.system(.body, design: .monospaced).weight(.medium))
+                    .foregroundStyle(isIdle ? .tertiary : .primary)
                 Text(formatCoreUsage(app.cpuPercent))
                     .font(.caption2.monospacedDigit())
-                    .foregroundStyle(.secondary)
+                    .foregroundStyle(isIdle ? .tertiary : .secondary)
             case .activity:
-                Text("R \(formatRate(app.diskReadBytesPerSecond))")
-                    .font(.caption.monospacedDigit())
-                Text("W \(formatRate(app.diskWriteBytesPerSecond))")
-                    .font(.caption.monospacedDigit())
-                    .foregroundStyle(.secondary)
+                if app.diskReadBytesPerSecond == 0 && app.diskWriteBytesPerSecond == 0 {
+                    Text("Idle")
+                        .font(.caption)
+                        .foregroundStyle(.tertiary)
+                } else {
+                    Text("R \(formatRate(app.diskReadBytesPerSecond))")
+                        .font(.caption.monospacedDigit())
+                        .foregroundStyle(app.diskReadBytesPerSecond == 0 ? .tertiary : .primary)
+                    Text("W \(formatRate(app.diskWriteBytesPerSecond))")
+                        .font(.caption.monospacedDigit())
+                        .foregroundStyle(app.diskWriteBytesPerSecond == 0 ? .tertiary : .secondary)
+                }
             case .storage:
                 EmptyView()
             case .insights:
@@ -671,6 +727,7 @@ struct ContentView: View {
             }
         }
         .help(metricHelp)
+        .accessibilityElement(children: .combine)
     }
 
     private var metricHeaderTitle: String {
@@ -693,16 +750,6 @@ struct ContentView: View {
         }
     }
 
-    private var metricSortSymbol: String {
-        switch monitor.dashboardMode {
-        case .memory: return memorySortSymbol
-        case .cpu: return monitor.sortMode == .cpuAscending ? "chevron.up" : "chevron.down"
-        case .activity: return "chevron.down"
-        case .storage: return "chevron.down"
-        case .insights: return "chevron.down"
-        }
-    }
-
     private func togglePrimarySort() {
         switch monitor.dashboardMode {
         case .memory:
@@ -710,7 +757,7 @@ struct ContentView: View {
         case .cpu:
             monitor.sortMode = monitor.sortMode == .cpuDescending ? .cpuAscending : .cpuDescending
         case .activity:
-            monitor.sortMode = .diskDescending
+            monitor.sortMode = monitor.sortMode == .diskDescending ? .diskAscending : .diskDescending
         case .storage:
             break
         case .insights:
@@ -728,22 +775,6 @@ struct ContentView: View {
         .controlSize(.small)
     }
 
-    private var cpuColor: Color { cpuColor(for: monitor.cpu.overallPercent) }
-
-    private func cpuColor(for percent: Double) -> Color {
-        if percent >= 85 { return .red }
-        if percent >= 60 { return .orange }
-        return .green
-    }
-
-    private var thermalColor: Color {
-        switch monitor.thermalLevel {
-        case .nominal: return .green
-        case .fair: return .yellow
-        case .serious: return .orange
-        case .critical: return .red
-        }
-    }
     private var errorIsPresented: Binding<Bool> {
         Binding(get: { monitor.errorMessage != nil }, set: { if !$0 { monitor.errorMessage = nil } })
     }
@@ -763,24 +794,28 @@ private struct MemoryBreakdownBar: View {
             GeometryReader { geometry in
                 HStack(spacing: 1) {
                     segment(snapshot.appBytes, color: .blue, width: geometry.size.width)
-                    segment(snapshot.wiredBytes, color: .purple, width: geometry.size.width)
+                    segment(snapshot.wiredBytes, color: .cyan, width: geometry.size.width)
                     segment(snapshot.compressedBytes, color: .orange, width: geometry.size.width)
                     segment(snapshot.cachedBytes, color: .green.opacity(0.7), width: geometry.size.width)
                     Spacer(minLength: 0)
                 }
                 .background(Color.secondary.opacity(0.1))
                 .clipShape(Capsule())
+                .animation(.easeOut(duration: 0.45), value: snapshot)
             }
             .frame(height: 9)
+            .accessibilityHidden(true)
 
             HStack(spacing: 16) {
                 legend("App", snapshot.appBytes, .blue)
-                legend("Wired", snapshot.wiredBytes, .purple)
+                legend("Wired", snapshot.wiredBytes, .cyan)
                 legend("Compressed", snapshot.compressedBytes, .orange)
                 legend("Cached", snapshot.cachedBytes, .green)
                 Spacer()
             }
         }
+        .accessibilityElement(children: .combine)
+        .accessibilityLabel("Memory breakdown")
     }
 
     private func segment(_ bytes: UInt64, color: Color, width: Double) -> some View {
@@ -801,14 +836,6 @@ private func formatMemoryChange(_ bytes: Int64) -> String {
     let prefix = bytes > 0 ? "+" : "−"
     let magnitude = UInt64(bytes.magnitude)
     return prefix + formatBytes(magnitude)
-}
-
-private func formatCPU(_ percent: Double) -> String {
-    percent < 10 ? String(format: "%.1f%%", percent) : String(format: "%.0f%%", percent)
-}
-
-func formatRate(_ bytesPerSecond: UInt64) -> String {
-    "\(formatBytes(bytesPerSecond))/s"
 }
 
 private func formatCoreUsage(_ cpuPercent: Double) -> String {

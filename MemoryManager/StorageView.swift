@@ -3,10 +3,19 @@ import SwiftUI
 struct StorageView: View {
     @EnvironmentObject private var storage: StorageMonitor
     @State private var pendingTrashItem: StorageItem?
+    @State private var showAllInsights = false
+    @State private var showAllDuplicates = false
+    @AppStorage("storageExplanationExpanded") private var explanationExpanded = true
+    var searchFocused: FocusState<Bool>.Binding
+
+    private let insightLimit = 12
+    private let duplicateGroupLimit = 8
+    private let duplicateFileLimit = 4
 
     var body: some View {
-        VStack(spacing: 0) {
-            ScrollView {
+        let items = storage.filteredItems
+        ScrollView {
+            LazyVStack(spacing: 0, pinnedViews: [.sectionHeaders]) {
                 VStack(spacing: 16) {
                     volumeOverview
                     scanControls
@@ -18,15 +27,24 @@ struct StorageView: View {
                     transparencyNote
                 }
                 .padding(20)
-            }
-            .frame(maxHeight: 480)
 
-            Divider()
-            itemControls
-            Divider()
-            itemList
+                Section {
+                    itemRows(items)
+                } header: {
+                    VStack(spacing: 0) {
+                        Divider()
+                        itemControls(count: items.count)
+                        Divider()
+                        columnHeader
+                        Divider()
+                    }
+                    .background(Color(nsColor: .windowBackgroundColor))
+                }
+            }
         }
         .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .top)
+        .searchable(text: $storage.searchText, placement: .toolbar, prompt: "Search files, categories, or paths")
+        .searchFocusedIfAvailable(searchFocused)
         .confirmationDialog(
             "Move \(pendingTrashItem?.name ?? "this item") to the Trash?",
             isPresented: trashConfirmationPresented,
@@ -51,20 +69,14 @@ struct StorageView: View {
 
     private var volumeOverview: some View {
         HStack(spacing: 20) {
-            ZStack {
-                Circle().stroke(Color.secondary.opacity(0.16), lineWidth: 10)
-                Circle()
-                    .trim(from: 0, to: storage.volume.usedPercent / 100)
-                    .stroke(storage.volume.usedPercent > 90 ? .red : .blue,
-                            style: StrokeStyle(lineWidth: 10, lineCap: .round))
-                    .rotationEffect(.degrees(-90))
-                VStack(spacing: 0) {
-                    Text("\(Int(storage.volume.usedPercent.rounded()))%")
-                        .font(.headline.monospacedDigit())
-                    Text("used").font(.caption2).foregroundStyle(.secondary)
-                }
-            }
-            .frame(width: 86, height: 86)
+            RingGauge(
+                percent: storage.volume.usedPercent,
+                color: storage.volume.usedPercent > 90 ? .red : .blue,
+                accessibilityLabel: "Startup disk used",
+                caption: "used",
+                lineWidth: 10,
+                size: 86
+            )
 
             VStack(alignment: .leading, spacing: 5) {
                 Text("Storage").font(.title2.weight(.semibold))
@@ -93,9 +105,12 @@ struct StorageView: View {
 
     private func volumeMetric(_ value: String, _ label: String) -> some View {
         VStack(alignment: .trailing, spacing: 4) {
-            Text(value).font(.headline.monospacedDigit())
+            Text(value).font(.headline.monospacedDigit()).liveValue(value)
             Text(label).font(.caption).foregroundStyle(.secondary)
         }
+        .accessibilityElement(children: .ignore)
+        .accessibilityLabel(label)
+        .accessibilityValue(value)
     }
 
     private var scanControls: some View {
@@ -131,6 +146,7 @@ struct StorageView: View {
             } label: {
                 Label("More", systemImage: "ellipsis.circle")
             }
+            .fixedSize()
         }
     }
 
@@ -143,6 +159,7 @@ struct StorageView: View {
                     .font(.caption.monospacedDigit()).foregroundStyle(.secondary)
             }
             ProgressView(value: storage.progress)
+                .accessibilityLabel("Scan progress")
             Text("Scanning runs only when requested so it does not continuously use the disk or battery.")
                 .font(.caption).foregroundStyle(.secondary)
         }
@@ -158,9 +175,12 @@ struct StorageView: View {
             Button {
                 storage.statusMessage = nil
             } label: {
-                Image(systemName: "xmark").foregroundStyle(.secondary)
+                Label("Dismiss", systemImage: "xmark")
+                    .labelStyle(.iconOnly)
+                    .foregroundStyle(.secondary)
             }
             .buttonStyle(.plain)
+            .help("Dismiss")
         }
         .padding(10)
         .background(.green.opacity(0.08), in: RoundedRectangle(cornerRadius: 9))
@@ -176,10 +196,10 @@ struct StorageView: View {
                         VStack(alignment: .leading, spacing: 4) {
                             HStack {
                                 Image(systemName: categorySymbol(category))
-                                    .foregroundStyle(riskColor(category.risk))
+                                    .foregroundStyle(category.risk.color)
                                 Text(category.name).font(.caption.weight(.semibold)).lineLimit(1)
                             }
-                            Text(formatBytes(category.bytes)).font(.headline.monospacedDigit())
+                            Text(formatBytes(category.bytes)).font(.headline.monospacedDigit()).liveValue(category.bytes)
                             Text("\(category.itemCount) top-level items")
                                 .font(.caption2).foregroundStyle(.secondary)
                         }
@@ -188,20 +208,34 @@ struct StorageView: View {
                         .background(Color.secondary.opacity(0.07), in: RoundedRectangle(cornerRadius: 10))
                     }
                     .buttonStyle(.plain)
+                    .help("Show \(category.name) items in the list")
+                    .accessibilityElement(children: .combine)
+                    .accessibilityHint("Filters the list to this category")
                 }
             }
         }
     }
 
     private var smartInsightsSection: some View {
-        VStack(alignment: .leading, spacing: 8) {
-            Label("Smart cleanup review", systemImage: "sparkles")
-                .font(.headline)
+        let insights = storage.smartInsights
+        let shown = showAllInsights ? insights : Array(insights.prefix(insightLimit))
+        return VStack(alignment: .leading, spacing: 8) {
+            HStack {
+                Label("Smart cleanup review", systemImage: "sparkles")
+                    .font(.headline)
+                Spacer()
+                if insights.count > insightLimit {
+                    Button(showAllInsights ? "Show Fewer" : "Show All \(insights.count)") {
+                        showAllInsights.toggle()
+                    }
+                    .controlSize(.small)
+                }
+            }
             Text("Suggestions are review-only. Possible leftovers and older apps are never removed automatically.")
                 .font(.caption).foregroundStyle(.secondary)
             ScrollView(.horizontal, showsIndicators: false) {
-                HStack(spacing: 10) {
-                    ForEach(storage.smartInsights.prefix(12)) { insight in
+                LazyHStack(spacing: 10) {
+                    ForEach(shown) { insight in
                         VStack(alignment: .leading, spacing: 4) {
                             Label(insight.title, systemImage: insightSymbol(insight.kind))
                                 .font(.caption.weight(.semibold)).foregroundStyle(.orange)
@@ -225,12 +259,22 @@ struct StorageView: View {
     }
 
     private var duplicateSection: some View {
-        VStack(alignment: .leading, spacing: 8) {
+        let groups = storage.duplicateGroups
+        let shownGroups = showAllDuplicates ? groups : Array(groups.prefix(duplicateGroupLimit))
+        let hasHiddenFiles = groups.contains { $0.files.count > duplicateFileLimit }
+        return VStack(alignment: .leading, spacing: 8) {
             HStack {
                 Label("Duplicate files", systemImage: "doc.on.doc")
                     .font(.headline)
                 if storage.isFindingDuplicates { ProgressView().controlSize(.small) }
                 Spacer()
+                if groups.count > duplicateGroupLimit || hasHiddenFiles {
+                    Button(showAllDuplicates ? "Show Fewer"
+                        : groups.count > duplicateGroupLimit ? "Show All \(groups.count) Groups" : "Show All Copies") {
+                        showAllDuplicates.toggle()
+                    }
+                    .controlSize(.small)
+                }
                 if !storage.isFindingDuplicates {
                     Button("Check Another Folder…") { storage.chooseFolderForDuplicates() }
                         .controlSize(.small)
@@ -239,22 +283,27 @@ struct StorageView: View {
             if let status = storage.duplicateStatus {
                 Text(status).font(.caption).foregroundStyle(.secondary)
             }
-            ForEach(storage.duplicateGroups.prefix(8)) { group in
+            ForEach(shownGroups) { group in
+                let files = showAllDuplicates ? group.files : Array(group.files.prefix(duplicateFileLimit))
                 VStack(alignment: .leading, spacing: 4) {
                     Text("\(group.files.count) identical files • \(formatBytes(group.fileSize)) each • up to \(formatBytes(group.reclaimableBytes)) recoverable")
                         .font(.caption.weight(.semibold))
-                    ForEach(group.files.prefix(4), id: \.path) { url in
+                    ForEach(files, id: \.path) { url in
                         HStack {
                             Text(url.path).font(.caption2).lineLimit(1).truncationMode(.middle)
                             Spacer()
                             Button("Reveal") { storage.reveal(url) }.controlSize(.mini)
                         }
                     }
+                    if files.count < group.files.count {
+                        Text("+ \(group.files.count - files.count) more copies")
+                            .font(.caption2).foregroundStyle(.secondary)
+                    }
                 }
                 .padding(8)
                 .background(Color.secondary.opacity(0.055), in: RoundedRectangle(cornerRadius: 8))
             }
-            if !storage.duplicateGroups.isEmpty {
+            if !groups.isEmpty {
                 Text("Memory Manager compares file contents, not just names. Review each copy in Finder before removing anything.")
                     .font(.caption2).foregroundStyle(.secondary)
             }
@@ -273,44 +322,48 @@ struct StorageView: View {
     }
 
     private var transparencyNote: some View {
-        HStack(alignment: .top, spacing: 10) {
-            Image(systemName: storage.inaccessibleCount > 0 ? "lock.trianglebadge.exclamationmark" : "info.circle")
-                .foregroundStyle(storage.inaccessibleCount > 0 ? .orange : .blue)
-            VStack(alignment: .leading, spacing: 3) {
-                Text("What “System Data” means here").font(.subheadline.weight(.semibold))
-                Text("App support, containers, caches, logs, developer files, backups, web data, temporary data, shared Library files, and /private/var are shown separately. Protected items can be inspected and revealed in Finder, but Memory Manager will not delete them.")
-                    .font(.caption).foregroundStyle(.secondary)
-                Text("Sizes are estimates. APFS snapshots, purgeable space, shared files, hard links, and inaccessible files can make the classified total differ from the volume’s used total.")
-                    .font(.caption).foregroundStyle(.secondary)
-                Text("Personal folders—including Desktop, Documents, Downloads, Music, Movies, Photos, Mail, Messages, and cloud drives—are not opened automatically. This avoids surprise privacy prompts and cloud downloads; use Choose Folder when you want to inspect one.")
-                    .font(.caption).foregroundStyle(.secondary)
-                if storage.inaccessibleCount > 0 {
-                    HStack {
-                        Text("\(storage.inaccessibleCount) folders or files could not be read.")
-                            .font(.caption.weight(.medium)).foregroundStyle(.orange)
-                        Button("Review Full Disk Access") { storage.openFullDiskAccessSettings() }
-                            .font(.caption)
-                    }
+        VStack(alignment: .leading, spacing: 8) {
+            DisclosureGroup(isExpanded: $explanationExpanded) {
+                VStack(alignment: .leading, spacing: 3) {
+                    Text("App support, containers, caches, logs, developer files, backups, web data, temporary data, shared Library files, and /private/var are shown separately. Protected items can be inspected and revealed in Finder, but Memory Manager will not delete them.")
+                    Text("Sizes are estimates. APFS snapshots, purgeable space, shared files, hard links, and inaccessible files can make the classified total differ from the volume’s used total.")
+                    Text("Personal folders—including Desktop, Documents, Downloads, Music, Movies, Photos, Mail, Messages, and cloud drives—are not opened automatically. This avoids surprise privacy prompts and cloud downloads; use Choose Folder when you want to inspect one.")
+                }
+                .font(.caption)
+                .foregroundStyle(.secondary)
+                .fixedSize(horizontal: false, vertical: true)
+                .frame(maxWidth: .infinity, alignment: .leading)
+                .padding(.top, 4)
+            } label: {
+                Label("What “System Data” means here", systemImage: "info.circle")
+                    .font(.subheadline.weight(.semibold))
+            }
+            if storage.inaccessibleCount > 0 {
+                HStack {
+                    Label(
+                        "\(storage.inaccessibleCount) folders or files could not be read.",
+                        systemImage: "lock.trianglebadge.exclamationmark"
+                    )
+                    .font(.caption.weight(.medium))
+                    .foregroundStyle(.orange)
+                    Button("Review Full Disk Access") { storage.openFullDiskAccessSettings() }
+                        .font(.caption)
                 }
             }
-            Spacer()
         }
         .padding(12)
+        .frame(maxWidth: .infinity, alignment: .leading)
         .background(Color.secondary.opacity(0.06), in: RoundedRectangle(cornerRadius: 10))
     }
 
-    private var itemControls: some View {
+    private func itemControls(count: Int) -> some View {
         HStack(spacing: 10) {
-            Image(systemName: "magnifyingglass").foregroundStyle(.secondary)
-            TextField("Search files, categories, or paths", text: $storage.searchText)
-                .textFieldStyle(.plain)
+            Text(storage.searchText.isEmpty ? "Largest items" : "Results for “\(storage.searchText)”")
+                .font(.subheadline.weight(.semibold))
+                .lineLimit(1)
             if !storage.searchText.isEmpty {
-                Button {
-                    storage.searchText = ""
-                } label: {
-                    Image(systemName: "xmark.circle.fill").foregroundStyle(.secondary)
-                }
-                .buttonStyle(.plain)
+                Button("Clear") { storage.searchText = "" }
+                    .controlSize(.small)
             }
             Spacer()
             Picker("Safety", selection: $storage.selectedRisk) {
@@ -321,7 +374,7 @@ struct StorageView: View {
             }
             .frame(width: 190)
             if storage.lastScanned != nil {
-                Text("\(storage.filteredItems.count) items • \(storage.measuredItemCount.formatted()) measured")
+                Text("\(count) items • \(storage.measuredItemCount.formatted()) measured")
                     .font(.caption).foregroundStyle(.secondary)
             }
         }
@@ -329,43 +382,75 @@ struct StorageView: View {
         .padding(.vertical, 11)
     }
 
-    private var itemList: some View {
-        VStack(spacing: 0) {
-            HStack {
-                Text("ITEM / LOCATION")
-                Spacer()
-                Text("SAFETY").frame(width: 145, alignment: .leading)
-                Text("SIZE").frame(width: 110, alignment: .trailing)
-                Text("ACTIONS").frame(width: 160, alignment: .trailing)
+    private var columnHeader: some View {
+        HStack {
+            Button {
+                storage.sortOrder = storage.sortOrder == .nameAscending ? .nameDescending : .nameAscending
+            } label: {
+                sortHeader(
+                    "ITEM / LOCATION",
+                    isActive: storage.sortOrder == .nameAscending || storage.sortOrder == .nameDescending,
+                    ascending: storage.sortOrder == .nameAscending
+                )
             }
-            .font(.caption.weight(.semibold))
-            .foregroundStyle(.secondary)
-            .padding(.horizontal, 18)
-            .padding(.vertical, 9)
-            Divider()
+            .buttonStyle(.plain)
+            .help("Sort by name")
+            Spacer()
+            Text("SAFETY").frame(width: 145, alignment: .leading)
+            Button {
+                storage.sortOrder = storage.sortOrder == .sizeDescending ? .sizeAscending : .sizeDescending
+            } label: {
+                sortHeader(
+                    "SIZE",
+                    isActive: storage.sortOrder == .sizeDescending || storage.sortOrder == .sizeAscending,
+                    ascending: storage.sortOrder == .sizeAscending
+                )
+            }
+            .buttonStyle(.plain)
+            .help("Sort by size")
+            .frame(width: 110, alignment: .trailing)
+            Text("ACTIONS").frame(width: 160, alignment: .trailing)
+        }
+        .font(.caption.weight(.semibold))
+        .foregroundStyle(.secondary)
+        .padding(.horizontal, 18)
+        .padding(.vertical, 9)
+    }
 
-            if storage.items.isEmpty && !storage.isScanning {
-                ContentUnavailableView(
-                    storage.lastScanned == nil ? "Ready to Inspect Storage" : "No Storage Items Found",
-                    systemImage: "internaldrive",
-                    description: Text(storage.lastScanned == nil
-                        ? "Run a scan to see large files and break down System Data."
-                        : "Try clearing the search or changing the safety filter.")
-                )
-            } else if storage.filteredItems.isEmpty {
-                ContentUnavailableView(
-                    "No Matching Items", systemImage: "magnifyingglass",
-                    description: Text("Try a different search or safety filter.")
-                )
-            } else {
-                ScrollView {
-                    LazyVStack(spacing: 0) {
-                        ForEach(storage.filteredItems) { item in
-                            itemRow(item)
-                            Divider().padding(.leading, 54)
-                        }
-                    }
-                }
+    private func sortHeader(_ title: String, isActive: Bool, ascending: Bool) -> some View {
+        HStack(spacing: 4) {
+            Text(title)
+            Image(systemName: ascending ? "chevron.up" : "chevron.down")
+                .opacity(isActive ? 1 : 0)
+        }
+        .foregroundStyle(isActive ? Color.primary : Color.secondary)
+        .contentShape(Rectangle())
+        .accessibilityElement(children: .ignore)
+        .accessibilityLabel(title.capitalized)
+        .accessibilityValue(isActive ? (ascending ? "Sorted ascending" : "Sorted descending") : "")
+    }
+
+    @ViewBuilder
+    private func itemRows(_ items: [StorageItem]) -> some View {
+        if storage.items.isEmpty && !storage.isScanning {
+            ContentUnavailableView(
+                storage.lastScanned == nil ? "Ready to Inspect Storage" : "No Storage Items Found",
+                systemImage: "internaldrive",
+                description: Text(storage.lastScanned == nil
+                    ? "Run a scan to see large files and break down System Data."
+                    : "The scan didn’t find any items to list.")
+            )
+            .frame(minHeight: 220)
+        } else if items.isEmpty {
+            ContentUnavailableView(
+                "No Matching Items", systemImage: "magnifyingglass",
+                description: Text("Try a different search or safety filter.")
+            )
+            .frame(minHeight: 220)
+        } else {
+            ForEach(items) { item in
+                itemRow(item)
+                Divider().padding(.leading, 53)
             }
         }
     }
@@ -373,20 +458,22 @@ struct StorageView: View {
     private func itemRow(_ item: StorageItem) -> some View {
         HStack(spacing: 11) {
             Image(systemName: item.isDirectory ? "folder.fill" : "doc.fill")
-                .foregroundStyle(riskColor(item.risk))
+                .foregroundStyle(item.risk.color)
                 .frame(width: 24)
+                .accessibilityHidden(true)
             VStack(alignment: .leading, spacing: 2) {
                 Text(item.name).font(.body.weight(.medium)).lineLimit(1)
                 Text("\(item.category) • \(item.url.path)")
                     .font(.caption).foregroundStyle(.secondary).lineLimit(1)
             }
+            .accessibilityElement(children: .combine)
             Spacer(minLength: 10)
             Text(item.risk.label)
                 .font(.caption.weight(.semibold))
-                .foregroundStyle(riskColor(item.risk))
+                .foregroundStyle(item.risk.color)
                 .padding(.horizontal, 7)
                 .padding(.vertical, 3)
-                .background(riskColor(item.risk).opacity(0.10), in: Capsule())
+                .background(item.risk.color.opacity(0.10), in: Capsule())
                 .frame(width: 145, alignment: .leading)
             VStack(alignment: .trailing, spacing: 2) {
                 Text(item.isMeasured ? formatBytes(item.allocatedBytes) : "Couldn’t measure")
@@ -395,10 +482,13 @@ struct StorageView: View {
                 Text(item.isDirectory ? "Folder" : "File").font(.caption2).foregroundStyle(.secondary)
             }
             .frame(width: 110, alignment: .trailing)
+            .accessibilityElement(children: .combine)
             HStack(spacing: 7) {
                 Button("Reveal") { storage.reveal(item) }
+                    .accessibilityLabel("Reveal \(item.name) in Finder")
                 if storage.canMoveToTrash(item) {
                     Button("Trash", role: .destructive) { pendingTrashItem = item }
+                        .accessibilityLabel("Move \(item.name) to the Trash")
                 }
             }
             .frame(width: 160, alignment: .trailing)
@@ -425,14 +515,6 @@ struct StorageView: View {
         return "folder"
     }
 
-    private func riskColor(_ risk: StorageRisk) -> Color {
-        switch risk {
-        case .usuallyRemovable: return .green
-        case .reviewCarefully: return .orange
-        case .protected: return .red
-        }
-    }
-
     private var trashConfirmationPresented: Binding<Bool> {
         Binding(get: { pendingTrashItem != nil }, set: { if !$0 { pendingTrashItem = nil } })
     }
@@ -442,8 +524,16 @@ struct StorageView: View {
     }
 }
 
+private struct StorageViewPreview: View {
+    @FocusState private var searchFocused: Bool
+
+    var body: some View {
+        StorageView(searchFocused: $searchFocused)
+            .environmentObject(StorageMonitor())
+            .frame(width: 1100, height: 800)
+    }
+}
+
 #Preview {
-    StorageView()
-        .environmentObject(StorageMonitor())
-        .frame(width: 1100, height: 800)
+    StorageViewPreview()
 }

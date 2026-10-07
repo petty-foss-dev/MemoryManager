@@ -175,7 +175,15 @@ enum DashboardMode: String, CaseIterable, Identifiable {
     case insights
 
     var id: String { rawValue }
-    var label: String { rawValue.capitalized }
+    var label: String {
+        switch self {
+        case .memory: return "Memory"
+        case .cpu: return "CPU"
+        case .activity: return "Activity"
+        case .storage: return "Storage"
+        case .insights: return "Insights"
+        }
+    }
     var symbol: String {
         switch self {
         case .memory: return "memorychip"
@@ -212,6 +220,7 @@ enum HistoryRange: String, CaseIterable, Identifiable {
 struct MemoryTrendSample: Equatable {
     let date: Date
     let bytes: UInt64
+    var cpuPercent: Double = 0
 }
 
 struct MemoryGrowthInsight: Identifiable, Equatable {
@@ -265,6 +274,7 @@ enum AppSortMode: String, CaseIterable, Identifiable {
     case cpuDescending
     case cpuAscending
     case diskDescending
+    case diskAscending
     case nameAscending
     case nameDescending
 
@@ -276,8 +286,27 @@ enum AppSortMode: String, CaseIterable, Identifiable {
         case .cpuDescending: return "CPU: High to Low"
         case .cpuAscending: return "CPU: Low to High"
         case .diskDescending: return "Disk Activity: High to Low"
+        case .diskAscending: return "Disk Activity: Low to High"
         case .nameAscending: return "Name: A to Z"
         case .nameDescending: return "Name: Z to A"
+        }
+    }
+
+    var isNameSort: Bool { self == .nameAscending || self == .nameDescending }
+
+    /// Keeps name sorts across dashboards, but switches a metric sort to the
+    /// dashboard's own metric so the CPU list isn't still ordered by memory.
+    func adjusted(for mode: DashboardMode) -> AppSortMode {
+        switch (mode, self) {
+        case (_, .nameAscending), (_, .nameDescending),
+             (.memory, .memoryDescending), (.memory, .memoryAscending),
+             (.cpu, .cpuDescending), (.cpu, .cpuAscending),
+             (.activity, .diskDescending), (.activity, .diskAscending),
+             (.storage, _), (.insights, _):
+            return self
+        case (.memory, _): return .memoryDescending
+        case (.cpu, _): return .cpuDescending
+        case (.activity, _): return .diskDescending
         }
     }
 }
@@ -364,7 +393,11 @@ final class ProcessMonitor: ObservableObject {
         didSet { defaults.set(sortMode.rawValue, forKey: Keys.sortMode); applySortAndFilterMetadata() }
     }
     @Published var dashboardMode: DashboardMode {
-        didSet { defaults.set(dashboardMode.rawValue, forKey: Keys.dashboardMode) }
+        didSet {
+            defaults.set(dashboardMode.rawValue, forKey: Keys.dashboardMode)
+            let adjustedSort = sortMode.adjusted(for: dashboardMode)
+            if adjustedSort != sortMode { sortMode = adjustedSort }
+        }
     }
     @Published var menuBarMetric: MenuBarMetric {
         didSet { defaults.set(menuBarMetric.rawValue, forKey: Keys.menuBarMetric) }
@@ -461,8 +494,10 @@ final class ProcessMonitor: ObservableObject {
         reduceBackgroundPolling = defaults.object(forKey: Keys.reduceBackgroundPolling) as? Bool ?? true
         combineProcesses = defaults.object(forKey: Keys.combineProcesses) as? Bool ?? true
         showHistory = defaults.object(forKey: Keys.showHistory) as? Bool ?? true
-        sortMode = AppSortMode(rawValue: defaults.string(forKey: Keys.sortMode) ?? "") ?? .memoryDescending
-        dashboardMode = DashboardMode(rawValue: defaults.string(forKey: Keys.dashboardMode) ?? "") ?? .memory
+        let savedDashboard = DashboardMode(rawValue: defaults.string(forKey: Keys.dashboardMode) ?? "") ?? .memory
+        let savedSort = AppSortMode(rawValue: defaults.string(forKey: Keys.sortMode) ?? "") ?? .memoryDescending
+        sortMode = savedSort.adjusted(for: savedDashboard)
+        dashboardMode = savedDashboard
         menuBarMetric = MenuBarMetric(rawValue: defaults.string(forKey: Keys.menuBarMetric) ?? "") ?? .both
         alertsEnabled = defaults.object(forKey: Keys.alertsEnabled) as? Bool ?? false
         pressureAlertsEnabled = defaults.object(forKey: Keys.pressureAlertsEnabled) as? Bool ?? true
@@ -512,7 +547,10 @@ final class ProcessMonitor: ObservableObject {
             $0.name.localizedCaseInsensitiveContains(searchText) || String($0.pid).contains(searchText)
         }
     }
-    var menuBarApps: [AppMemory] { Array(apps.filter { !$0.isIgnored && !$0.isHelper }.prefix(6)) }
+    var menuBarApps: [AppMemory] {
+        let visible = apps.filter { !$0.isIgnored && !$0.isHelper }
+        return Array(visible.sorted { $0.memoryBytes > $1.memoryBytes }.prefix(6))
+    }
     var menuBarTitle: String {
         switch menuBarMetric {
         case .memory: return "M \(Int(memory.usedPercent.rounded()))%"
@@ -540,6 +578,11 @@ final class ProcessMonitor: ObservableObject {
     }
     var historicalSampleCount: Int { archivedHistory.count + history.count }
     var sessionDuration: TimeInterval { Date().timeIntervalSince(sessionStarted) }
+
+    /// Up to an hour of memory and CPU samples for an app; helpers aren't tracked.
+    func timeline(for app: AppMemory) -> [MemoryTrendSample] {
+        appMemoryTimelines[app.bundleIdentifier ?? "\(app.name)#\(app.pid)"] ?? []
+    }
 
     func growthInsight(for app: AppMemory) -> MemoryGrowthInsight? {
         let key = app.bundleIdentifier ?? "\(app.name)#\(app.pid)"
@@ -907,6 +950,10 @@ final class ProcessMonitor: ObservableObject {
                 let lhsDisk = lhs.diskReadBytesPerSecond &+ lhs.diskWriteBytesPerSecond
                 let rhsDisk = rhs.diskReadBytesPerSecond &+ rhs.diskWriteBytesPerSecond
                 return lhsDisk == rhsDisk ? lhs.name < rhs.name : lhsDisk > rhsDisk
+            case .diskAscending:
+                let lhsDisk = lhs.diskReadBytesPerSecond &+ lhs.diskWriteBytesPerSecond
+                let rhsDisk = rhs.diskReadBytesPerSecond &+ rhs.diskWriteBytesPerSecond
+                return lhsDisk == rhsDisk ? lhs.name < rhs.name : lhsDisk < rhsDisk
             case .nameAscending:
                 return lhs.name.localizedCaseInsensitiveCompare(rhs.name) == .orderedAscending
             case .nameDescending:
@@ -960,7 +1007,7 @@ final class ProcessMonitor: ObservableObject {
         for app in rows where !app.isHelper {
             let key = app.bundleIdentifier ?? "\(app.name)#\(app.pid)"
             var samples = appMemoryTimelines[key] ?? []
-            samples.append(MemoryTrendSample(date: date, bytes: app.memoryBytes))
+            samples.append(MemoryTrendSample(date: date, bytes: app.memoryBytes, cpuPercent: app.cpuPercent))
             samples.removeAll { $0.date < cutoff }
             appMemoryTimelines[key] = samples
         }

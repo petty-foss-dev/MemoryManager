@@ -16,21 +16,27 @@ struct MenuBarView: View {
                 Spacer()
                 Text(monitor.memory.pressure.label)
                     .font(.caption.weight(.semibold))
-                    .foregroundStyle(pressureColor)
+                    .foregroundStyle(monitor.memory.pressure.color)
                     .padding(.horizontal, 8)
                     .padding(.vertical, 4)
-                    .background(pressureColor.opacity(0.12), in: Capsule())
+                    .background(monitor.memory.pressure.color.opacity(0.12), in: Capsule())
+                    .accessibilityLabel("Memory pressure \(monitor.memory.pressure.label)")
             }
 
-            ProgressView(value: monitor.memory.usedPercent, total: 100)
-                .tint(pressureColor)
+            ProgressView(value: min(monitor.memory.usedPercent, 100), total: 100)
+                .tint(monitor.memory.pressure.color)
+                .accessibilityLabel("Memory used")
+                .accessibilityValue("\(Int(monitor.memory.usedPercent.rounded())) percent")
 
             HStack(spacing: 8) {
                 Text("CPU").font(.caption2.weight(.semibold)).foregroundStyle(.secondary)
-                ProgressView(value: monitor.cpu.overallPercent, total: 100)
-                    .tint(cpuColor)
+                ProgressView(value: min(monitor.cpu.overallPercent, 100), total: 100)
+                    .tint(cpuLoadColor(monitor.cpu.overallPercent))
+                    .accessibilityLabel("CPU load")
+                    .accessibilityValue("\(Int(monitor.cpu.overallPercent.rounded())) percent")
                 Text("\(Int(monitor.cpu.overallPercent.rounded()))%")
                     .font(.caption.monospacedDigit())
+                    .accessibilityHidden(true)
             }
 
             HStack {
@@ -50,7 +56,8 @@ struct MenuBarView: View {
                     Spacer()
                 }
                 Label(monitor.thermalLevel.label, systemImage: "thermometer.medium")
-                    .foregroundStyle(thermalColor)
+                    .foregroundStyle(monitor.thermalLevel.color)
+                    .accessibilityLabel("Thermal state \(monitor.thermalLevel.label)")
             }
             .font(.caption)
 
@@ -69,18 +76,21 @@ struct MenuBarView: View {
                             .resizable()
                             .scaledToFit()
                             .frame(width: 22, height: 22)
+                            .accessibilityHidden(true)
                         Text(app.name).lineLimit(1)
                         Spacer()
                         if app.isPaused {
                             Button("Resume") { monitor.togglePause(app) }
                                 .controlSize(.small)
+                                .accessibilityLabel("Resume \(app.name)")
                         }
                         VStack(alignment: .trailing, spacing: 1) {
                             Text(formatBytes(app.memoryBytes))
-                            Text("CPU \(Int(app.cpuPercent.rounded()))%")
+                            Text("CPU \(formatCPU(app.wholeMachineCPUPercent(activeProcessorCount: monitor.cpu.activeCoreCount)))")
                         }
                         .font(.caption2.monospacedDigit())
                         .foregroundStyle(.secondary)
+                        .accessibilityElement(children: .combine)
                     }
                 }
             }
@@ -97,17 +107,17 @@ struct MenuBarView: View {
                 Button {
                     monitor.refresh()
                 } label: {
-                    Image(systemName: "arrow.clockwise")
+                    Label("Refresh", systemImage: "arrow.clockwise").labelStyle(.iconOnly)
                 }
                 .help("Refresh")
                 SettingsLink {
-                    Image(systemName: "gearshape")
+                    Label("Settings", systemImage: "gearshape").labelStyle(.iconOnly)
                 }
                 .help("Settings")
                 Button {
                     NSApp.terminate(nil)
                 } label: {
-                    Image(systemName: "power")
+                    Label("Quit Memory Manager", systemImage: "power").labelStyle(.iconOnly)
                 }
                 .help("Quit Memory Manager")
             }
@@ -120,29 +130,6 @@ struct MenuBarView: View {
         VStack(alignment: .leading, spacing: 2) {
             Text(value).font(.subheadline.weight(.semibold).monospacedDigit())
             Text(name).font(.caption2).foregroundStyle(.secondary)
-        }
-    }
-
-    private var pressureColor: Color {
-        switch monitor.memory.pressure {
-        case .normal: return .green
-        case .elevated: return .orange
-        case .critical: return .red
-        }
-    }
-
-    private var cpuColor: Color {
-        if monitor.cpu.overallPercent >= 85 { return .red }
-        if monitor.cpu.overallPercent >= 60 { return .orange }
-        return .green
-    }
-
-    private var thermalColor: Color {
-        switch monitor.thermalLevel {
-        case .nominal: return .green
-        case .fair: return .yellow
-        case .serious: return .orange
-        case .critical: return .red
         }
     }
 }

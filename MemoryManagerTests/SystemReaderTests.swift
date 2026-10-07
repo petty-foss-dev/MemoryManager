@@ -11,6 +11,15 @@ final class SystemReaderTests: XCTestCase {
         XCTAssertNil(PowerSnapshot.estimatedWatts(voltageMillivolts: 0, currentMilliamps: 1_000))
     }
 
+    func testSortSwitchesToTheDashboardMetric() {
+        XCTAssertEqual(AppSortMode.memoryDescending.adjusted(for: .cpu), .cpuDescending)
+        XCTAssertEqual(AppSortMode.cpuAscending.adjusted(for: .activity), .diskDescending)
+        XCTAssertEqual(AppSortMode.diskAscending.adjusted(for: .memory), .memoryDescending)
+        XCTAssertEqual(AppSortMode.cpuAscending.adjusted(for: .cpu), .cpuAscending)
+        XCTAssertEqual(AppSortMode.nameDescending.adjusted(for: .cpu), .nameDescending)
+        XCTAssertEqual(AppSortMode.cpuDescending.adjusted(for: .storage), .cpuDescending)
+    }
+
     func testLivePowerSnapshotIsInternallyConsistent() {
         let power = SystemReader.readPowerSnapshot()
         if let watts = power.watts { XCTAssertGreaterThanOrEqual(watts, 0) }
