@@ -12,7 +12,7 @@ body:
     attributes:
       label: Memory Manager version
       description: Shown in Memory Manager → About Memory Manager.
-      placeholder: For example, 3.3.1 (11)
+      placeholder: For example, 3.4.0 (12)
     validations:
       required: true
   - type: input
